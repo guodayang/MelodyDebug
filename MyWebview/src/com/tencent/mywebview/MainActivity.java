@@ -5,10 +5,13 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.util.List;
 import java.util.Scanner;
 
+import org.apache.http.Header;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.HttpClient;
@@ -25,6 +28,7 @@ import android.os.Message;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Menu;
@@ -49,16 +53,17 @@ public class MainActivity extends Activity implements OnClickListener {
     EditText ipText;
     String msgText;
     Button connectBtn;
-    int count;
-    static BufferedReader mBufferedReaderServer = null;
-    static PrintWriter mPrintWriterServer = null;
-    static BufferedReader mBufferedReaderClient = null;
-    static PrintWriter mPrintWriterClient = null;
+    int fileCount = 0;
+    static BufferedReader mBufferedReader = null;
+    static PrintWriter mPrintWriter = null;
+    static PrintStream mPrintStreamWriter = null;
     private Thread mThreadClient = null;
     private Socket mSocketClient = null;
     private boolean isConnecting = false;
     private JsResult jsResult;
     String userAgent;
+    String debugJs = "debugBreakPoint";
+    String debugFunction = "var debugBreakPoint=function(i){while(Debug.isBreakPoint(i)){try{var s=Debug.debug();eval(s)}catch(e){}}};";
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -76,7 +81,7 @@ public class MainActivity extends Activity implements OnClickListener {
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
         webSettings.setJavaScriptEnabled(true);
         webSettings.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        userAgent=webSettings.getUserAgentString();
+        userAgent = webSettings.getUserAgentString();
         webView.clearCache(true);
         webView.loadUrl("http://www.baidu.com");
         webView.setWebViewClient(client);
@@ -96,11 +101,12 @@ public class MainActivity extends Activity implements OnClickListener {
             super.handleMessage(msg);
             if (msg.what == 0) {
             } else if (msg.what == 1) {
-                if(msg.obj!=null){
-                    Toast.makeText(MainActivity.this, msg.obj.toString(), Toast.LENGTH_LONG).show();
+                if (msg.obj != null) {
+                    Toast.makeText(MainActivity.this, msg.obj.toString(),
+                            Toast.LENGTH_LONG).show();
                 }
-                        
-                //msgText="";
+
+                // msgText="";
             }
         }
     };
@@ -129,7 +135,7 @@ public class MainActivity extends Activity implements OnClickListener {
             if ((start == -1) || (start + 1 >= ip.length())) {
                 Message msg = new Message();
                 msg.what = 1;
-                msg.obj="";
+                msg.obj = "";
                 mHandler.sendMessage(msg);
                 return;
             }
@@ -143,52 +149,70 @@ public class MainActivity extends Activity implements OnClickListener {
                 // 连接服务器
                 mSocketClient = new Socket(sIP, port); // portnum
                 // 取得输入、输出流
-                mBufferedReaderClient = new BufferedReader(
-                        new InputStreamReader(mSocketClient.getInputStream()));
+                mBufferedReader = new BufferedReader(new InputStreamReader(
+                        mSocketClient.getInputStream()));
 
-                mPrintWriterClient = new PrintWriter(
+                mPrintWriter = new PrintWriter(mSocketClient.getOutputStream(),
+                        true);
+
+                mPrintStreamWriter = new PrintStream(
                         mSocketClient.getOutputStream(), true);
 
                 msgText = "已经连接server!\n";// 消息换行
                 Message msg = new Message();
-                msg.obj=msgText;
+                msg.obj = msgText;
                 msg.what = 1;
                 mHandler.sendMessage(msg);
+                String s = "hellohel";
+                /*
+                 * String s1=""; for(int i=0;i<513;++i){ s1+=s; }
+                 */
+                send(s);
             } catch (Exception e) {
                 msgText = "连接IP异常:" + e.toString() + e.getMessage() + "\n";// 消息换行
                 Message msg = new Message();
                 msg.what = 1;
-                msg.obj=msgText;
+                msg.obj = msgText;
                 mHandler.sendMessage(msg);
                 return;
             }
             SharedPreferences userInfo = getSharedPreferences("userInfo", 0);
             userInfo.edit().putString("serverIP", ip).commit();
 
-            char[] buffer = new char[256];
+            char[] buffer = new char[4096];
             int count = 0;
             int error = 0;
             while (isConnecting) {
                 try {
                     // if ( (recvMessageClient =
                     // mBufferedReaderClient.readLine()) != null )
-                    if ((count = mBufferedReaderClient.read(buffer)) > 0) {
+                    if ((count = mBufferedReader.read(buffer)) > 0) {
                         msgText = getInfoBuff(buffer, count) + "\n";// 消息换行
                         Message msg = new Message();
                         msg.what = 1;
-                        msg.obj=msgText;
+                        msg.obj = msgText;
                         mHandler.sendMessage(msg);
                         if (msgText.startsWith("js:")) {
-                            webView.loadUrl("javascript:"
-                                    + msgText.substring(3));
+                            String js=msgText.substring(3);
+                            js=js.trim();
+                            int index=js.lastIndexOf(";");
+                            if(index==-1||index==js.length()-1){
+                                if(js.indexOf("var ")==-1){
+                                    webView.loadUrl("javascript:var ssss="+js+";Debug.sendResponse(ssss);");
+                                }
+                                else{
+                                    webView.loadUrl("javascript:"+js+";");
+                                }
+                            }
+                            else{
+                                webView.loadUrl("javascript:"+js.substring(0,index+1)+"var ssss="+js.substring(index+1)+";Debug.sendResponse(ssss);");
+                            }
+                        }
+                        if (msgText.startsWith("getHtml")) {
+                            webView.loadUrl("javascript:Debug.sendResponse(document.documentElement.outerHTML)");
                         }
                     }
                 } catch (Exception e) {
-                    /*
-                     * msgText = "接收异常:" + e.getMessage() + "\n";// 消息换行 Message
-                     * msg = new Message(); msg.what = 1;
-                     * mHandler.sendMessage(msg);
-                     */
                     try {
                         if (mSocketClient != null) {
                             mSocketClient.close();
@@ -214,10 +238,23 @@ public class MainActivity extends Activity implements OnClickListener {
             }
         }
     };
-    
-    private void send(String s){
-        mPrintWriterClient.print(s);// 发送给服务器
-        mPrintWriterClient.flush();
+
+    public byte[] intToByte(int i) {
+        byte[] abyte0 = new byte[4];
+        abyte0[0] = (byte) (0xff & i);
+        abyte0[1] = (byte) ((0xff00 & i) >> 8);
+        abyte0[2] = (byte) ((0xff0000 & i) >> 16);
+        abyte0[3] = (byte) ((0xff000000 & i) >> 24);
+        return abyte0;
+    }
+
+    private void send(String s) {
+        if(isConnecting){
+            int l = s.getBytes().length;
+            // mPrintStreamWriter.write(intToByte(l),0,4);
+            mPrintWriter.print(s);// 发送给服务器
+            mPrintWriter.flush();
+        }
     }
 
     WebChromeClient chromeClient = new WebChromeClient() {
@@ -230,37 +267,32 @@ public class MainActivity extends Activity implements OnClickListener {
                 urlText.setText(webView.getUrl());
             }
         }
-        
-        public void onConsoleMessage(String message, int lineNumber, String sourceID) {
-            String s=message + " -- From line "
-                    + lineNumber + " of "
+
+        public void onConsoleMessage(String message, int lineNumber,
+                String sourceID) {
+            String s = message + " -- From line " + lineNumber + " of "
                     + sourceID;
             Log.d("MyWebview", s);
-            if(isConnecting){
+            if (isConnecting) {
                 send(s);
             }
         }
-        /*@Override
-        public boolean onJsAlert(WebView view, String url, String message, final JsResult result) {
-            send("pause");
-            if(jsResult!=null){
-                return false;
-            }
-            jsResult=result;
-            return true;
-            return false;
-        }*/
-        
-        public boolean onConsoleMessage(ConsoleMessage cm){
-            String s=cm.message() + " -- From line "
-                    + cm.lineNumber() + " of "
-                    + cm.sourceId();
+
+        /*
+         * @Override public boolean onJsAlert(WebView view, String url, String
+         * message, final JsResult result) { send("pause"); if(jsResult!=null){
+         * return false; } jsResult=result; return true; return false; }
+         */
+
+        public boolean onConsoleMessage(ConsoleMessage cm) {
+            String s = cm.message() + " -- From line " + cm.lineNumber()
+                    + " of " + cm.sourceId();
             Log.d("MyWebview", s);
-            if(isConnecting){
+            if (isConnecting) {
                 send(s);
             }
             return true;
-            
+
         }
     };
 
@@ -273,8 +305,7 @@ public class MainActivity extends Activity implements OnClickListener {
      */
     public static InputStream StringToInputStream(String in) throws Exception {
 
-        ByteArrayInputStream is = new ByteArrayInputStream(
-                in.getBytes("utf-8"));
+        ByteArrayInputStream is = new ByteArrayInputStream(in.getBytes("utf-8"));
         return is;
     }
 
@@ -282,26 +313,43 @@ public class MainActivity extends Activity implements OnClickListener {
         public WebResourceResponse shouldInterceptRequest(WebView view,
                 String url) {
             Log.d("MyWebview", url);
-            /*String s=doGet(url);
-            s+="alert('xx')";*/
-            if(url.indexOf(".js")!=-1){
-                String js=doGet(url);
-                String debugFunction="var debugBreakPoint=function(i){while(Debug.isBreakPoint(i)){try{var s=Debug.debug();eval(s)}catch(e){}}};";
-                String debugJs="debugBreakPoint";
-                Scanner scanner = new Scanner(js);
-                //js=debugFunction+js;
-                int count=0;
-                StringBuilder resultJs=new StringBuilder(debugFunction);
-                while (scanner.hasNextLine()) {
-                  String line = scanner.nextLine();
-                  // process the line
-                  ++count;
-                  resultJs.append(debugJs+"("+count+");"+line+"\n");
+            /*
+             * String s=doGet(url); s+="alert('xx')";
+             */
+            /*if (fileCount == 0) {
+                ++fileCount;
+                String s=doGet(url);
+                if(s==null){
+                    return null;
                 }
-                //js=debugJs+js.replaceAll("\n", "\n"+debugJs);
+                String html = debugHtml(s);
+                try {
+                    return new WebResourceResponse("text/html", "utf-8",
+                            StringToInputStream(html));
+                } catch (Exception e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+            } else */if (url.indexOf(".js") != -1) {
+                String js = doGet(url);
+                if(js==null){
+                    return null;
+                }
+                int count = 0;
+                StringBuilder resultJs = new StringBuilder(debugFunction);
+                Scanner scanner = new Scanner(js);
+                // js=debugFunction+js;
+                while (scanner.hasNextLine()) {
+                    String line = scanner.nextLine();
+                    // process the line
+                    ++count;
+                    resultJs.append(debugJs + "(" + count + ");" + line + "\n");
+                }
+                // js=debugJs+js.replaceAll("\n", "\n"+debugJs);
                 Log.d("MyWebview", resultJs.toString());
                 try {
-                    return new WebResourceResponse("text/javascript", "utf-8", StringToInputStream(resultJs.toString()));
+                    return new WebResourceResponse("text/javascript", "utf-8",
+                            StringToInputStream(resultJs.toString()));
                 } catch (Exception e) {
                     // TODO Auto-generated catch block
                     e.printStackTrace();
@@ -310,22 +358,28 @@ public class MainActivity extends Activity implements OnClickListener {
             return null;
             // WebResourceResponse response=
         }
+        public void onPageStarted(WebView view, String url, Bitmap favicon){
+            fileCount=0;
+        }
     };
-    
-    public class InjectObject{
-        public String debug(){
-            if(msgText.equals("")){
+
+    public class InjectObject {
+        public String debug() {
+            if (msgText.equals("")) {
                 return msgText;
-            }
-            else{
-                String s=msgText;
-                msgText="";
+            } else {
+                String s = msgText;
+                msgText = "";
                 return s;
             }
         }
-        
-        public boolean isBreakPoint(int i){
+
+        public boolean isBreakPoint(int i) {
             return false;
+        }
+
+        public void sendResponse(String s) {
+            send(s);
         }
     }
 
@@ -335,7 +389,7 @@ public class MainActivity extends Activity implements OnClickListener {
         if (isConnecting) {
             disConnect();
         }
-        int nPid=android.os.Process.myPid();
+        int nPid = android.os.Process.myPid();
         android.os.Process.killProcess(nPid);
     }
 
@@ -351,14 +405,15 @@ public class MainActivity extends Activity implements OnClickListener {
         try {
             if (mSocketClient != null) {
                 if (mSocketClient.isConnected()) {
-                    mPrintWriterClient.print("exit");// 发送给服务器
-                    mPrintWriterClient.flush();
+                    send("exit");
                 }
                 mSocketClient.close();
                 mSocketClient = null;
 
-                mPrintWriterClient.close();
-                mPrintWriterClient = null;
+                mPrintWriter.close();
+                mPrintStreamWriter.close();
+                mPrintStreamWriter = null;
+                mPrintWriter = null;
             }
         } catch (IOException e) {
             // TODO Auto-generated catch block
@@ -388,10 +443,8 @@ public class MainActivity extends Activity implements OnClickListener {
             }
             webView.loadUrl(url);
             if (isConnecting) {
-                mPrintWriterClient.print(url);// 发送给服务器
-                mPrintWriterClient.flush();
+                send(url);
             }
-            count=0;
         } else if (view == connectBtn) {
             if (isConnecting) {
                 disConnect();
@@ -406,6 +459,57 @@ public class MainActivity extends Activity implements OnClickListener {
         }
     }
 
+    /*
+     * 
+     */
+    public String debugHtml(String html) {
+        Scanner scanner = new Scanner(html);
+        // js=debugFunction+js;
+        boolean isScript = false;
+        StringBuilder resultJs = new StringBuilder();
+        boolean isFirst = true;
+        int count=1;
+        while (scanner.hasNextLine()) {
+            String line = scanner.nextLine();
+            int index = line.indexOf("<script");
+            String line1 = "";
+            if (index != -1) {
+                int index2 = line.indexOf(">", index);
+                if(line.indexOf("</script>", index)==index2+1){
+                    Log.d("mywebview", "source");
+                }
+                else{
+                    if(isFirst){
+                        line1 = line.substring(0, index2 + 1) + debugFunction+ debugJs + "(" + count
+                            + ");" + line.substring(index2 + 1);
+                        isFirst = false;
+                    }
+                    else{
+                        line1 = line.substring(0, index2 + 1) + debugJs + "(" + count
+                                + ");" + line.substring(index2 + 1);
+                    }
+                    isScript = true;
+                    if(line.indexOf("<", index2+1)!=-1){
+                        isScript = false;
+                    }
+                }
+            } else if (isScript) {
+                if (line.indexOf("<") != -1) {
+                    isScript = false;
+                }
+                line1 = debugJs + "(" + count + ");" + line;
+            }
+            else{
+                line1=line;
+            }
+            // process the line
+            ++count;
+            resultJs.append(line1);
+        }
+        send(resultJs.toString());
+        return resultJs.toString();
+    }
+
     /**
      * Get请求
      */
@@ -416,12 +520,17 @@ public class MainActivity extends Activity implements OnClickListener {
 
         HttpClient httpClient = new DefaultHttpClient(httpParams);
         HttpGet httpGet = new HttpGet(url);
-        httpGet.setHeader("User-Agent",userAgent);
-        // String.format("%s/%s (Linux; Android %s; %s Build/%s)", MY_APP_NAME, MY_APP_VERSION_NAME, Build.VERSION.RELEASE,        // GET
+        httpGet.setHeader("User-Agent", userAgent);
+        // String.format("%s/%s (Linux; Android %s; %s Build/%s)", MY_APP_NAME,
+        // MY_APP_VERSION_NAME, Build.VERSION.RELEASE, // GET
         try {
             HttpResponse response = httpClient.execute(httpGet);
             if (response.getStatusLine().getStatusCode() != HttpStatus.SC_OK) {
                 Log.i("GET", "Bad Request!");
+            }
+            Header[] headers=response.getHeaders("Content-Type");
+            if(headers.length>0&&headers[0].getValue().startsWith("image")){
+                return null;
             }
             String result = EntityUtils.toString(response.getEntity(), "UTF-8");
             return result;
