@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">DebugWebview</string>
+    <string name="action_server">Server</string>
+    <string name="action_input_url">Input URL</string>
+    <string name="ip">IP</string>
+    <string name="port">Port</string>
+
+</resources>
