@@ -6,5 +6,8 @@
     <string name="action_input_url">Input URL</string>
     <string name="ip">IP</string>
     <string name="port">Port</string>
+    <string name="connect">连接</string>
+    <string name="disconnect">断开</string>
+    <string name="double_click_to_exit">点击两次退出哦~我是melody~小~</string>
 
 </resources>
