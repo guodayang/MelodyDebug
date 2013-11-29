@@ -37,10 +37,13 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.View.OnTouchListener;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
 import android.webkit.ConsoleMessage;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceResponse;
@@ -49,8 +52,10 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.LinearLayout.LayoutParams;
 import android.widget.PopupWindow;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.TextView.OnEditorActionListener;
 import android.widget.Toast;
@@ -64,6 +69,10 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
      */
     // main webView
     private WebView mWebView;
+    // progress bar indicating the loading of web page in the webView
+    private ProgressBar mProgressBar;
+    // menu icon in action bar indicating the server condition
+    private  MenuItem serverMenuItem;
     // editText to input URL in action bar
     private EditText urlEditTextInActionBar;
     // editText to input URL in dialog
@@ -76,6 +85,8 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
      */
     private Handler mHandler;
     private static final int SHOW_MESSAGE = 1001;
+    private static final int SHOW_SERVER_CONNECTED = 1002;
+    private static final int SHOW_SERVER_DISCONNECTED = 1003;
 
     /**
      * variables for the WebView
@@ -106,6 +117,11 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
     static PrintStream mPrintStreamWriter = null;
     private Thread mThreadClient = null;
     private Socket mSocketClient = null;
+    
+    /**
+     * other variables
+     */
+    private boolean doubleBackToExitPressedOnce = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -140,6 +156,7 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
     public boolean onCreateOptionsMenu(Menu menu) {
         // Inflate the menu; this adds items to the action bar if it is present.
         getMenuInflater().inflate(R.menu.main, menu);
+        serverMenuItem = menu.findItem(R.id.action_server);
         return true;
     }
 
@@ -150,6 +167,9 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
         case R.id.action_server:
             // show the dialog to set ip and port
             showIpPortPopupWindow();
+            return true;
+        case android.R.id.home:
+            onBackKeyClick();
             return true;
         default:
             return super.onOptionsItemSelected(item);
@@ -172,6 +192,11 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
         }
     }
 
+    @Override
+    public void onBackPressed() {
+        onBackKeyClick();
+    }
+
     /**
      * initialize variables used in this application
      */
@@ -188,6 +213,12 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
                     if (msg.obj != null) {
                         Toast.makeText(MainActivity.this, msg.obj.toString(), Toast.LENGTH_LONG).show();
                     }
+                    break;
+                case SHOW_SERVER_CONNECTED:
+                    serverMenuItem.setIcon(R.drawable.ic_action_server_connected);
+                    break;
+                case SHOW_SERVER_DISCONNECTED:
+                    serverMenuItem.setIcon(R.drawable.ic_action_server_disconnected);
                     break;
 
                 default:
@@ -262,11 +293,16 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
          */
         mWebChromeClient = new WebChromeClient() {
             public void onProgressChanged(WebView view, int progress) {
-                // Make the bar disappear after URL is loaded,
-                // and changes string to Loading...
-                urlEditTextInActionBar.setText("Loading..." + progress + "%");
+                // when loading web page, show progress bar
                 if (progress == 100) {
+                    mProgressBar.setVisibility(View.GONE);
                     urlEditTextInActionBar.setText(mWebView.getUrl());
+                } else {
+                    if (mProgressBar.getVisibility() == View.GONE) {
+                        mProgressBar.setVisibility(View.VISIBLE);
+                    }
+                    // show progress
+                    mProgressBar.setProgress(progress);
                 }
             }
 
@@ -323,7 +359,10 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
                     msg.obj = msgText;
                     msg.what = SHOW_MESSAGE;
                     mHandler.sendMessage(msg);
-                    isConnecting=true;
+                    isConnecting = true;
+                    // change action bar menu icon
+                    showServerState(SHOW_SERVER_CONNECTED);
+                    
                     send("手机已经连接");
                 } catch (Exception e) {
                     msgText = "连接IP异常:" + e.toString() + e.getMessage() + "\n";// 消息换行
@@ -370,6 +409,9 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
                                 mSocketClient = null;
                             }
                             isConnecting = false;
+                            // change action bar menu icon
+                            showServerState(SHOW_SERVER_DISCONNECTED);
+                            
                         } catch (IOException e1) {
                             e1.printStackTrace();
                         }
@@ -403,6 +445,7 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
          * initialize views
          */
         mWebView = (WebView) findViewById(R.id.webview);
+        mProgressBar = (ProgressBar) findViewById(R.id.progressBar);
         urlEditTextInActionBar = (EditText) findViewById(R.id.url_input_editText_in_action_bar);
         urlEditTextInActionBar.setOnClickListener(this);
 
@@ -454,7 +497,10 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
         urlEditTextIndialog.setOnEditorActionListener(new OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                /**
+                 * 暂时测到小米2的actionId为IME_ACTION_DONE，其余为IME_NULL
+                 */
+                if (actionId == EditorInfo.IME_NULL || actionId == EditorInfo.IME_ACTION_DONE) {
                     String url = urlEditTextIndialog.getText().toString();
                     urlEditTextInActionBar.setText(url);
 
@@ -499,14 +545,17 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
         ipEditText.setText(MSharedPreference.get(this, MSharedPreference.IP, ""));
         final EditText portEditText = (EditText) ipPortView.findViewById(R.id.port_editText);
         portEditText.setText(MSharedPreference.get(this, MSharedPreference.PORT, ""));
-        ImageView ipPortAcceptBtn = (ImageView) ipPortView.findViewById(R.id.ip_port_accept_imageView);
-        ImageView ipPortNegativeBtn = (ImageView) ipPortView.findViewById(R.id.ip_port_negative_imageView);
+        ImageView ipPortConnectImage = (ImageView) ipPortView.findViewById(R.id.ip_port_connect_imageView);
+        final LinearLayout ipPortConnectBg = (LinearLayout) ipPortView.findViewById(R.id.ip_port_connect_linearLayout);
+        ImageView ipPortDisconnectImage = (ImageView) ipPortView.findViewById(R.id.ip_port_disconnect_imageView);
+        final LinearLayout ipPortDisconnectBg = (LinearLayout) ipPortView.findViewById(R.id.ip_port_disconnect_linearLayout);
         // click listener for button
         View.OnClickListener ipPortViewOnClickListener = new OnClickListener() {
             @Override
             public void onClick(View view) {
                 switch (view.getId()) {
-                case R.id.ip_port_accept_imageView:
+                case R.id.ip_port_connect_imageView:
+                case R.id.ip_port_connect_linearLayout:
                     // set ip and port
                     ip = ipEditText.getText().toString();
                     MSharedPreference.save(MainActivity.this, MSharedPreference.IP, ip);
@@ -521,7 +570,8 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
                     mThreadClient = new Thread(monitorServerRunnable);
                     mThreadClient.start();
                     break;
-                case R.id.ip_port_negative_imageView:
+                case R.id.ip_port_disconnect_imageView:
+                case R.id.ip_port_disconnect_linearLayout:
                     // disconnect
                     if (isConnecting) {
                         disconnect();
@@ -532,12 +582,60 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
                 }
             }
         };
-        ipPortAcceptBtn.setOnClickListener(ipPortViewOnClickListener);
-        ipPortNegativeBtn.setOnClickListener(ipPortViewOnClickListener);
+        // touch listener for button: when touch, change the color of background
+        View.OnTouchListener ipPortViewOnTouchListener = new OnTouchListener() {
+            @Override
+            public boolean onTouch(View view, MotionEvent motionevent) {
+                switch (motionevent.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    switch (view.getId()) {
+                    case R.id.ip_port_connect_imageView:
+                    case R.id.ip_port_connect_linearLayout:
+                        ipPortConnectBg.setBackgroundColor(getResources().getColor(R.color.light_blue_bg));
+                        break;
+                    case R.id.ip_port_disconnect_imageView:
+                    case R.id.ip_port_disconnect_linearLayout:
+                        ipPortDisconnectBg.setBackgroundColor(getResources().getColor(R.color.light_blue_bg));
+                        break;
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                    switch (view.getId()) {
+                    case R.id.ip_port_connect_imageView:
+                    case R.id.ip_port_connect_linearLayout:
+                        ipPortConnectBg.setBackgroundColor(getResources().getColor(R.color.transparent));
+                        break;
+                    case R.id.ip_port_disconnect_imageView:
+                    case R.id.ip_port_disconnect_linearLayout:
+                        ipPortDisconnectBg.setBackgroundColor(getResources().getColor(R.color.transparent));
+                        break;
+                    }
+                    break;
+                }
+                return false;
+            }
+        };
+        /**
+         * set on click listener
+         */
+        ipPortConnectImage.setOnClickListener(ipPortViewOnClickListener);
+        ipPortConnectBg.setOnClickListener(ipPortViewOnClickListener);
+        ipPortDisconnectImage.setOnClickListener(ipPortViewOnClickListener);
+        ipPortDisconnectBg.setOnClickListener(ipPortViewOnClickListener);
+        /**
+         * set on touch listener
+         */
+        ipPortConnectImage.setOnTouchListener(ipPortViewOnTouchListener);
+        ipPortConnectBg.setOnTouchListener(ipPortViewOnTouchListener);
+        ipPortDisconnectImage.setOnTouchListener(ipPortViewOnTouchListener);
+        ipPortDisconnectBg.setOnTouchListener(ipPortViewOnTouchListener);
     }
 
     private void disconnect() {
         isConnecting = false;
+        // change action bar menu icon
+        showServerState(SHOW_SERVER_CONNECTED);
+        serverMenuItem.setIcon(R.drawable.ic_action_server_disconnected);
         try {
             if (mSocketClient != null) {
                 if (mSocketClient.isConnected()) {
@@ -663,6 +761,43 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
         }
         send(resultJs.toString());
         return resultJs.toString();
+    }
+    
+    private void onBackKeyClick() {
+        if (mWebView.canGoBack()) {
+            mWebView.stopLoading();
+            mWebView.goBack();
+        } else {
+            // double click the back key and exit
+            if (doubleBackToExitPressedOnce) {
+                super.onBackPressed();
+                return;
+            }
+            doubleBackToExitPressedOnce = true;
+            Toast.makeText(this, getString(R.string.double_click_to_exit), Toast.LENGTH_SHORT).show();
+            new Handler().postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    doubleBackToExitPressedOnce = false;
+                }
+            }, 2000);
+        }
+    }
+    
+    /**
+     * change the color of the action bar menu icon indicating different state of server
+     * @param state <i>SHOW_SERVER_CONNECTED</i>or<i>SHOW_SERVER_DISCONNECTED</i>
+     */
+    private void showServerState(int state) {
+        switch (state) {
+        case SHOW_SERVER_CONNECTED:
+        case SHOW_SERVER_DISCONNECTED:
+            mHandler.sendEmptyMessage(state);
+            break;
+
+        default:
+            break;
+        }
     }
 
     public class InjectObject {
