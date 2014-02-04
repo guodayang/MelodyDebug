@@ -79,6 +79,12 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
     private EditText urlEditTextIndialog;
     // button to clear URL
     private ImageView clearUrlBtn;
+    
+    /**
+     * views for the pop up window to input IP and port
+     */
+    View ipPortView;
+    PopupWindow ipPortPopupWindow;
 
     /**
      * variables for main operation
@@ -130,16 +136,6 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
 
         initVariables();
         initViews();
-
-        /**
-         * IP and port change frequently, so show the pop up window to set IP and port at the beginning,
-         * use post delay or a exception will occur
-         */
-        mHandler.postDelayed(new Runnable() {
-            public void run() {
-                showIpPortPopupWindow();
-            }
-        }, 200);
     }
 
     @Override
@@ -157,6 +153,19 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
         // Inflate the menu; this adds items to the action bar if it is present.
         getMenuInflater().inflate(R.menu.main, menu);
         serverMenuItem = menu.findItem(R.id.action_server);
+        
+        /**
+         * IP and port change frequently, so show the pop up window to set IP and port at the beginning,
+         * use post delay or a exception will occur
+         * It looks weird to add the operation here, the reason is the pup up window is just under the menu icon,
+         * so, the menu icon must have initialized before the window to show
+         */
+        ipPortView.post(new Runnable() {
+            @Override
+            public void run() {
+                ipPortPopupWindow.showAsDropDown(findViewById(R.id.action_server));                
+            }
+        });
         return true;
     }
 
@@ -166,7 +175,7 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
         switch (item.getItemId()) {
         case R.id.action_server:
             // show the dialog to set ip and port
-            showIpPortPopupWindow();
+            ipPortPopupWindow.showAsDropDown(findViewById(R.id.action_server));
             return true;
         case android.R.id.home:
             onBackKeyClick();
@@ -465,6 +474,9 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
         mWebView.addJavascriptInterface(new InjectObject(), "Debug");
 
         userAgentString = mWebSettings.getUserAgentString();
+        
+        // initialize the popupWindow where user can set the IP and port to connect to the server
+        initIpPortPopupWindow();
     }
 
     /**
@@ -524,19 +536,19 @@ public class MainActivity extends ActionBarActivity implements OnClickListener {
     }
 
     /**
-     * show a popupWindow where user can set the IP and port to connect to the server
+     * initialize the popupWindow where user can set the IP and port to connect to the server
      */
-    private void showIpPortPopupWindow() {
+    private void initIpPortPopupWindow() {
         /**
          * initialize the pop up window
          */
-        View ipPortView = getLayoutInflater().inflate(R.layout.popup_ip_port_input, null);
-        final PopupWindow ipPortPopupWindow = new PopupWindow(ipPortView, LayoutParams.WRAP_CONTENT,
+        ipPortView = getLayoutInflater().inflate(R.layout.popup_ip_port_input, null);
+        
+        ipPortPopupWindow = new PopupWindow(ipPortView, LayoutParams.WRAP_CONTENT,
                 LayoutParams.WRAP_CONTENT, true);
         ipPortPopupWindow.setTouchable(true);
         ipPortPopupWindow.setOutsideTouchable(true);
         ipPortPopupWindow.setBackgroundDrawable(new BitmapDrawable());
-        ipPortPopupWindow.showAsDropDown(findViewById(R.id.action_server));
 
         /**
          * initialize views in pop up window
